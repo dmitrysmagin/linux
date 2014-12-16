@@ -24,6 +24,7 @@
 
 /* AHB0 devices */
 #define JZ4770_LCD_BASE_ADDR	0x13050000
+#define JZ4770_TVE_BASE_ADDR	0x13050100
 #define JZ4770_IPU_BASE_ADDR	0x13080000
 
 /* AHB1 devices */
