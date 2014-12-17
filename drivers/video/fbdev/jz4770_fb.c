@@ -50,6 +50,7 @@
 
 #include "jz4770_ipu.h"
 #include "jz4770_lcdc.h"
+#include "jz4770_tve.h"
 
 #define MAX_XRES 640
 #define MAX_YRES 480
@@ -67,7 +68,7 @@ struct jz4760lcd_panel_t {
 	unsigned int bfw;	/* begin of frame, in line count */
 };
 
-static const struct jz4760lcd_panel_t jz4760_lcd_panel = {
+static struct jz4760lcd_panel_t jz4760_lcd_panel = {
 	.cfg = LCD_CFG_LCDPIN_LCD | LCD_CFG_RECOVER | /* Underrun recover */
 	       LCD_CFG_MODE_GENERIC_TFT | /* General TFT panel */
 	       LCD_CFG_MODE_TFT_24BIT | 	/* output 24bpp */
@@ -79,8 +80,16 @@ static const struct jz4760lcd_panel_t jz4760_lcd_panel = {
 	/* Note: 432000000 / 72 = 60 * 400 * 250, so we get exactly 60 Hz. */
 };
 
+static struct jz4760lcd_panel_t jz4760_tve_panel = {
+	.cfg = LCD_CFG_TVEN | /* output to tve */
+		LCD_CFG_NEWDES |
+		LCD_CFG_RECOVER |
+		LCD_CFG_MODE_INTER_CCIR656,
+	TVE_WIDTH_PAL, TVE_HEIGHT_PAL, TVE_FREQ_PAL, 0, 0, 0, 0, 0, 0,
+};
+
 /* default output to lcd panel */
-static const struct jz4760lcd_panel_t *jz_panel = &jz4760_lcd_panel;
+static struct jz4760lcd_panel_t *jz_panel = &jz4760_lcd_panel;
 
 struct jzfb {
 	struct fb_info *fb;
@@ -98,6 +107,8 @@ struct jzfb {
 
 	struct mutex lock;
 	bool is_enabled;
+	int tv_out; /* 0 - off, 1 - ntsc, 2 - pal */
+
 	/*
 	 * Number of frames to wait until doing a forced foreground flush.
 	 * If it looks like we are double buffering, we can flush on vertical
@@ -127,6 +138,15 @@ static void ctrl_disable(struct jzfb *jzfb)
 {
 	unsigned int cnt;
 	u32 val;
+
+	/* Quick disable for TVE */
+	if (jz_panel->cfg & LCD_CFG_TVEN) {
+		val = readl(jzfb->base + LCD_CTRL);
+		val &= ~LCD_CTRL_ENA;
+		writel(val, jzfb->base + LCD_CTRL);
+
+		return;
+	}
 
 	/* Use regular disable: finishes current frame, then stops. */
 	val = readl(jzfb->base + LCD_CTRL) | LCD_CTRL_DIS;
@@ -464,6 +484,11 @@ static void jzfb_ipu_configure(struct jzfb *jzfb,
 		     outputH = panel->h,
 		     xpos = 0, ypos = 0;
 
+	if (jz_panel->cfg & LCD_CFG_TVEN) {
+		outputW = MAX_XRES;
+		outputH = MAX_YRES;
+	}
+
 	/* Enable the chip, reset all the registers */
 	writel(IPU_CTRL_CHIP_EN | IPU_CTRL_RST, jzfb->ipu_base + IPU_CTRL);
 
@@ -559,7 +584,8 @@ static void jzfb_ipu_configure(struct jzfb *jzfb,
 
 static void jzfb_power_up(struct jzfb *jzfb)
 {
-	pinctrl_pm_select_default_state(&jzfb->pdev->dev);
+	if (!(jz_panel->cfg & LCD_CFG_TVEN))
+		pinctrl_pm_select_default_state(&jzfb->pdev->dev);
 
 	jzfb_lcdc_enable(jzfb);
 	jzfb_ipu_enable(jzfb);
@@ -573,7 +599,8 @@ static void jzfb_power_down(struct jzfb *jzfb)
 	jzfb_ipu_disable(jzfb);
 	clk_disable(jzfb->ipuclk);
 
-	pinctrl_pm_select_sleep_state(&jzfb->pdev->dev);
+	if (!(jz_panel->cfg & LCD_CFG_TVEN))
+		pinctrl_pm_select_sleep_state(&jzfb->pdev->dev);
 }
 
 /*
@@ -724,14 +751,26 @@ static void jz4760fb_set_panel_mode(struct jzfb *jzfb,
 
 	/* Set a black background */
 	writel(0, jzfb->base + LCD_BGC);
+
+	/* Enable RGB => YUV for tve */
+	if (jz_panel->cfg & LCD_CFG_TVEN) {
+		writew(LCD_RGBC_YCC, jzfb->base + LCD_RGBC);
+	} else {
+		writew(0, jzfb->base + LCD_RGBC);
+	}
 }
 
 static void jzfb_change_clock(struct jzfb *jzfb, unsigned int rate)
 {
-	/* Use pixel clock for LCD panel (as opposed to TV encoder). */
-	__cpm_select_pixclk_lcd();
+	if (jz_panel->cfg & LCD_CFG_TVEN) {
+		__cpm_select_pixclk_tve();
 
-	clk_set_rate(jzfb->lpclk, rate);
+		clk_set_rate(jzfb->lpclk, 27000000);
+	} else {
+		__cpm_select_pixclk_lcd();
+
+		clk_set_rate(jzfb->lpclk, rate);
+	}
 
 	dev_dbg(&jzfb->pdev->dev, "PixClock: req %u, got %lu\n",
 		rate, clk_get_rate(jzfb->lpclk));
@@ -873,6 +912,97 @@ static ssize_t keep_aspect_ratio_store(struct device *dev,
 static DEVICE_ATTR_RW(keep_aspect_ratio);
 static DEVICE_BOOL_ATTR(allow_downscaling, 0644, allow_downscaling);
 
+#define FB_TVOUT_OFF 0
+#define FB_TVOUT_NTSC 1
+#define FB_TVOUT_PAL 2
+#define FB_TVOUT_LAST 2
+
+static const char *jzfb_tv_out_norm[] = {
+	"off", "ntsc", "pal",
+};
+
+static void jzfb_tv_out(struct jzfb *jzfb, int mode)
+{
+	if (mode > FB_TVOUT_LAST)
+		return;
+
+	if (jzfb->tv_out == mode)
+		return;
+
+	jzfb->tv_out = mode;
+
+	switch (mode) {
+	case FB_TVOUT_OFF:
+		jz4760tve_disable_tve();
+
+		jz_panel = &jz4760_lcd_panel;
+		break;
+	case FB_TVOUT_NTSC:
+		jz4760tve_disable_tve();
+
+		jz_panel = &jz4760_tve_panel;
+
+		jz_panel->cfg &= ~LCD_CFG_TVEPEH;
+		jz_panel->w = TVE_WIDTH_NTSC;
+		jz_panel->h = TVE_HEIGHT_NTSC;
+		jz_panel->fclk = TVE_FREQ_NTSC;
+
+		jz4760tve_init(PANEL_MODE_TVE_NTSC);
+		udelay(100);
+		jz4760tve_enable_tve();
+		break;
+	case FB_TVOUT_PAL:
+		jz4760tve_disable_tve();
+
+		jz_panel = &jz4760_tve_panel;
+
+		jz_panel->cfg |= LCD_CFG_TVEPEH;
+		jz_panel->w = TVE_WIDTH_PAL;
+		jz_panel->h = TVE_HEIGHT_PAL;
+		jz_panel->fclk = TVE_FREQ_PAL;
+
+		jz4760tve_init(PANEL_MODE_TVE_PAL);
+		udelay(100);
+		jz4760tve_enable_tve();
+		break;
+	}
+
+	jz4760fb_set_par(jzfb->fb);
+}
+
+static ssize_t jzfb_tv_out_show(struct device *dev,
+				struct device_attribute *attr,
+				char *buf)
+{
+	struct jzfb *jzfb = dev_get_drvdata(dev);
+
+	if (jzfb->tv_out > FB_TVOUT_LAST) {
+		dev_err(dev, "Unknown norm for TV-out\n");
+		return -1;
+	}
+
+	return sprintf(buf, "%s\n", jzfb_tv_out_norm[jzfb->tv_out]);
+}
+
+static ssize_t jzfb_tv_out_store(struct device *dev,
+				 struct device_attribute *attr,
+				 const char *buf, size_t n)
+{
+	size_t i;
+	struct jzfb *jzfb = dev_get_drvdata(dev);
+
+	for (i = 0; i <= FB_TVOUT_LAST; i++) {
+		if (sysfs_streq(jzfb_tv_out_norm[i], buf)) {
+			jzfb_tv_out(jzfb, i);
+			return n;
+		}
+	}
+
+	return -EINVAL;
+}
+
+static DEVICE_ATTR(tv_out, 0644, jzfb_tv_out_show, jzfb_tv_out_store);
+
 static int jz4760_fb_probe(struct platform_device *pdev)
 {
 	struct jzfb *jzfb;
@@ -995,6 +1125,12 @@ static int jz4760_fb_probe(struct platform_device *pdev)
 		goto err_remove_keep_aspect_ratio_file;
 	}
 
+	ret = device_create_file(&pdev->dev, &dev_attr_tv_out);
+	if (ret) {
+		dev_err(&pdev->dev, "Unable to create sysfs node: %i\n", ret);
+		goto err_remove_tvout;
+	}
+
 	ret = register_framebuffer(fb);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Failed to register framebuffer device.\n");
@@ -1008,6 +1144,8 @@ static int jz4760_fb_probe(struct platform_device *pdev)
 	fb_show_logo(jzfb->fb, 0);
 	return 0;
 
+err_remove_tvout:
+	device_remove_file(&pdev->dev, &dev_attr_tv_out);
 err_remove_allow_downscaling_file:
 	device_remove_file(&pdev->dev, &dev_attr_allow_downscaling.attr);
 err_remove_keep_aspect_ratio_file:
@@ -1025,6 +1163,7 @@ static int jz4760_fb_remove(struct platform_device *pdev)
 
 	device_remove_file(&pdev->dev, &dev_attr_allow_downscaling.attr);
 	device_remove_file(&pdev->dev, &dev_attr_keep_aspect_ratio);
+	device_remove_file(&pdev->dev, &dev_attr_tv_out);
 
 	if (jzfb->is_enabled)
 		jzfb_power_down(jzfb);
