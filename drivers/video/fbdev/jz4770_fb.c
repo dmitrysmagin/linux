@@ -356,6 +356,9 @@ static void jzfb_foreground_resize(struct jzfb *jzfb,
 	 *	4. F1 position
 	 */
 
+	printk("OSD: %d x %d, PANEL: %d x %d\n", width, height,
+						 jz_panel->w, jz_panel->h);
+
 	writel((ypos << 16) | xpos, jzfb->base + LCD_XYP1);
 	writel((height << 16) | width, jzfb->base + LCD_SIZE1);
 }
@@ -472,7 +475,12 @@ static void set_coefs(struct jzfb *jzfb, unsigned int reg,
 static inline bool scaling_required(struct jzfb *jzfb)
 {
 	struct fb_var_screeninfo *var = &jzfb->fb->var;
-	return var->xres != jz_panel->w || var->yres != jz_panel->h;
+
+	if (jz_panel->cfg & LCD_CFG_TVEN) {
+		return var->xres != MAX_XRES || var->yres != MAX_YRES;
+	} else {
+		return var->xres != jz_panel->w || var->yres != jz_panel->h;
+	}
 }
 
 static void jzfb_ipu_configure(struct jzfb *jzfb,
@@ -519,6 +527,11 @@ static void jzfb_ipu_configure(struct jzfb *jzfb,
 	if (scaling_required(jzfb)) {
 		unsigned int numW = panel->w, denomW = fb->var.xres,
 			     numH = panel->h, denomH = fb->var.yres;
+
+		if (jz_panel->cfg & LCD_CFG_TVEN) {
+			numW = MAX_XRES;
+			numW = MAX_YRES;
+		}
 
 		BUG_ON(reduce_fraction(&numW, &denomW) < 0);
 		BUG_ON(reduce_fraction(&numH, &denomH) < 0);
@@ -931,13 +944,18 @@ static void jzfb_tv_out(struct jzfb *jzfb, int mode)
 
 	jzfb->tv_out = mode;
 
+	ctrl_disable(jzfb);
+	cpm_start_clock(CGM_TVE);
+
 	switch (mode) {
 	case FB_TVOUT_OFF:
+		printk("Back to LCD mode\n");
 		jz4760tve_disable_tve();
 
 		jz_panel = &jz4760_lcd_panel;
 		break;
 	case FB_TVOUT_NTSC:
+		printk("Switch to NTSC mode\n");
 		jz4760tve_disable_tve();
 
 		jz_panel = &jz4760_tve_panel;
@@ -952,6 +970,7 @@ static void jzfb_tv_out(struct jzfb *jzfb, int mode)
 		jz4760tve_enable_tve();
 		break;
 	case FB_TVOUT_PAL:
+		printk("Switch to PAL mode\n");
 		jz4760tve_disable_tve();
 
 		jz_panel = &jz4760_tve_panel;
