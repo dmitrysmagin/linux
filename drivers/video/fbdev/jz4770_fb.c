@@ -247,6 +247,8 @@ static int jz4760fb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 		maxh = jz_panel->h;
 	}
 
+	printk("Requesting %d x %d, ", var->xres, var->yres);
+
 	/* The minimum input size for the IPU to work is 4x4 */
 	if (var->xres < 4)
 		var->xres = 4;
@@ -272,6 +274,8 @@ static int jz4760fb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 			denom++, var->yres++);
 	if (var->yres > MAX_YRES)
 		return -EINVAL;
+
+	printk("found %d x %d\n", var->xres, var->yres);
 
 	/* Reserve space for triple buffering. */
 	var->yres_virtual = var->yres * 3;
@@ -365,7 +369,7 @@ static void jzfb_foreground_resize(struct jzfb *jzfb,
 	 *	4. F1 position
 	 */
 
-	printk("OSD: %d x %d, PANEL: %d x %d\n", width, height,
+	printk("OSD: %d x %d x %d, PANEL: %d x %d\n", width, height, jzfb->bpp,
 						 jz_panel->w, jz_panel->h);
 
 	writel((ypos << 16) | xpos, jzfb->base + LCD_XYP1);
@@ -541,6 +545,9 @@ static void jzfb_ipu_configure(struct jzfb *jzfb,
 			numW = MAX_XRES;
 			numH = MAX_YRES;
 		}
+
+		printk("Resizing %d x %d to %d x %d\n",
+			fb->var.xres, fb->var.yres, numW, numH);
 
 		BUG_ON(reduce_fraction(&numW, &denomW) < 0);
 		BUG_ON(reduce_fraction(&numH, &denomH) < 0);
