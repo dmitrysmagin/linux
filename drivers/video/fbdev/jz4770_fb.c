@@ -530,7 +530,7 @@ static void jzfb_ipu_configure(struct jzfb *jzfb,
 
 		if (jz_panel->cfg & LCD_CFG_TVEN) {
 			numW = MAX_XRES;
-			numW = MAX_YRES;
+			numH = MAX_YRES;
 		}
 
 		BUG_ON(reduce_fraction(&numW, &denomW) < 0);
