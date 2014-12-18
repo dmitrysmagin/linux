@@ -237,6 +237,15 @@ static int jz4760fb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 	struct jzfb *jzfb = fb->par;
 	unsigned int num, denom;
 	unsigned int framerate, divider;
+	int maxw, maxh;
+
+	if (jz_panel->cfg & LCD_CFG_TVEN) {
+		maxw = MAX_XRES;
+		maxh = MAX_YRES;
+	} else {
+		maxw = jz_panel->w;
+		maxh = jz_panel->h;
+	}
 
 	/* The minimum input size for the IPU to work is 4x4 */
 	if (var->xres < 4)
@@ -245,20 +254,20 @@ static int jz4760fb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb)
 		var->yres = 4;
 
 	if (!allow_downscaling) {
-		if (var->xres > jz_panel->w)
-			var->xres = jz_panel->w;
-		if (var->yres > jz_panel->h)
-			var->yres = jz_panel->h;
+		if (var->xres > maxw)
+			var->xres = maxw;
+		if (var->yres > maxh)
+			var->yres = maxh;
 	}
 
 	/* Adjust the input size until we find a valid configuration */
-	for (num = jz_panel->w, denom = var->xres; var->xres <= MAX_XRES &&
+	for (num = maxw, denom = var->xres; var->xres <= MAX_XRES &&
 			reduce_fraction(&num, &denom) < 0;
 			denom++, var->xres++);
 	if (var->xres > MAX_XRES)
 		return -EINVAL;
 
-	for (num = jz_panel->h, denom = var->yres; var->yres <= MAX_YRES &&
+	for (num = maxh, denom = var->yres; var->yres <= MAX_YRES &&
 			reduce_fraction(&num, &denom) < 0;
 			denom++, var->yres++);
 	if (var->yres > MAX_YRES)
