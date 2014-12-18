@@ -23,8 +23,6 @@
 
 #include "gc_hal.h"
 
-typedef struct _gckEVENT *      gckEVENT;
-
 /* Maps state locations within the context buffer. */
 typedef struct _gcsSTATE_MAP * gcsSTATE_MAP_PTR;
 typedef struct _gcsSTATE_MAP
