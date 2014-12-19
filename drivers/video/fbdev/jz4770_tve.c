@@ -107,25 +107,21 @@ struct jz4760tve_info *jz4760_tve_info = &jz4760_tve_info_PAL;
 
 void jz4760tve_enable_tve(void)
 {
-	/* enable tve controller, enable DACn??? */
-	jz4760_tve_info->ctrl |= TVE_CTRL_DAPD1;
-	jz4760_tve_info->ctrl &= ~(TVE_CTRL_DAPD | TVE_CTRL_SWRST);
-
 	REG_TVE_CTRL |= TVE_CTRL_DAPD1;
 	mdelay(1);
 
-	REG_TVE_CTRL = jz4760_tve_info->ctrl;
+	REG_TVE_CTRL &= ~TVE_CTRL_DAPD;
+	REG_TVE_CTRL &= ~TVE_CTRL_SWRST;
 
-	printk("TVE_CTRL_DAPD = %d\n", REG_TVE_CTRL & TVE_CTRL_DAPD);
-	printk("TVE_CTRL_DAPD1 = %d\n", REG_TVE_CTRL & TVE_CTRL_DAPD1);
+	printk("TVE_CTRL_DAPD = %d\n", !!(REG_TVE_CTRL & TVE_CTRL_DAPD));
+	printk("TVE_CTRL_DAPD1 = %d\n", !!(REG_TVE_CTRL & TVE_CTRL_DAPD1));
 }
 
 /* turn off TVE, turn off DACn... */
 void jz4760tve_disable_tve(void)
 {
-	jz4760_tve_info->ctrl |= TVE_CTRL_DAPD; /* DACn disabled??? */
-	jz4760_tve_info->ctrl |= TVE_CTRL_SWRST; /* DACn disabled??? */
-	REG_TVE_CTRL = jz4760_tve_info->ctrl;
+	REG_TVE_CTRL |= TVE_CTRL_DAPD;
+	REG_TVE_CTRL |= TVE_CTRL_SWRST;
 }
 
 void jz4760tve_set_tve_mode(struct jz4760tve_info *tve)

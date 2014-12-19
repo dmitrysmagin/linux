@@ -613,8 +613,7 @@ static void jzfb_ipu_configure(struct jzfb *jzfb,
 
 static void jzfb_power_up(struct jzfb *jzfb)
 {
-	if (!(jz_panel->cfg & LCD_CFG_TVEN))
-		pinctrl_pm_select_default_state(&jzfb->pdev->dev);
+	pinctrl_pm_select_default_state(&jzfb->pdev->dev);
 
 	jzfb_lcdc_enable(jzfb);
 	jzfb_ipu_enable(jzfb);
@@ -628,8 +627,7 @@ static void jzfb_power_down(struct jzfb *jzfb)
 	jzfb_ipu_disable(jzfb);
 	clk_disable(jzfb->ipuclk);
 
-	if (!(jz_panel->cfg & LCD_CFG_TVEN))
-		pinctrl_pm_select_sleep_state(&jzfb->pdev->dev);
+	pinctrl_pm_select_sleep_state(&jzfb->pdev->dev);
 }
 
 /*
@@ -961,18 +959,18 @@ static void jzfb_tv_out(struct jzfb *jzfb, int mode)
 	jzfb->tv_out = mode;
 
 	ctrl_disable(jzfb);
-	cpm_start_clock(CGM_TVE);
+	jzfb_ipu_disable(jzfb);
 
 	switch (mode) {
 	case FB_TVOUT_OFF:
 		printk("Back to LCD mode\n");
 		jz4760tve_disable_tve();
+		cpm_stop_clock(CGM_TVE);
 
 		jz_panel = &jz4760_lcd_panel;
 		break;
 	case FB_TVOUT_NTSC:
 		printk("Switch to NTSC mode\n");
-		jz4760tve_disable_tve();
 
 		jz_panel = &jz4760_tve_panel;
 
@@ -983,11 +981,12 @@ static void jzfb_tv_out(struct jzfb *jzfb, int mode)
 
 		jz4760tve_init(PANEL_MODE_TVE_NTSC);
 		udelay(100);
+
+		cpm_start_clock(CGM_TVE);
 		jz4760tve_enable_tve();
 		break;
 	case FB_TVOUT_PAL:
 		printk("Switch to PAL mode\n");
-		jz4760tve_disable_tve();
 
 		jz_panel = &jz4760_tve_panel;
 
@@ -998,6 +997,8 @@ static void jzfb_tv_out(struct jzfb *jzfb, int mode)
 
 		jz4760tve_init(PANEL_MODE_TVE_PAL);
 		udelay(100);
+
+		cpm_start_clock(CGM_TVE);
 		jz4760tve_enable_tve();
 		break;
 	}
