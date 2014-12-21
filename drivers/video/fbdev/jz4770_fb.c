@@ -960,6 +960,7 @@ static void jzfb_tv_out(struct jzfb *jzfb, int mode)
 
 	ctrl_disable(jzfb);
 	jzfb_ipu_disable(jzfb);
+	jzfb->is_enabled = false;
 
 	switch (mode) {
 	case FB_TVOUT_OFF:
@@ -1004,6 +1005,10 @@ static void jzfb_tv_out(struct jzfb *jzfb, int mode)
 	}
 
 	jz4760fb_set_par(jzfb->fb);
+
+	jzfb_ipu_enable(jzfb);
+	jzfb_lcdc_enable(jzfb);
+	jzfb->is_enabled = true;
 }
 
 static ssize_t jzfb_tv_out_show(struct device *dev,
