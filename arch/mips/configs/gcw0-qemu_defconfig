@@ -188,7 +188,7 @@ CONFIG_NLS_UTF8=y
 # CONFIG_SCHED_DEBUG is not set
 # CONFIG_FTRACE is not set
 CONFIG_CMDLINE_BOOL=y
-CONFIG_CMDLINE="boot=/dev/sda loop0=/boot/rootfs.bin root=/dev/loop0 video=cirrusfb:320x240-16@60"
+CONFIG_CMDLINE="boot=/dev/sda loop0=/boot/rootfs.squashfs root=/dev/loop0 video=cirrusfb:320x240-16@60"
 # CONFIG_CRYPTO_ANSI_CPRNG is not set
 # CONFIG_CRYPTO_HW is not set
 CONFIG_FONTS=y
