@@ -535,6 +535,25 @@ static int cirrusfb_check_var(struct fb_var_screeninfo *var,
 	unsigned pixels = info->screen_size * 8 / var->bits_per_pixel;
 	struct cirrusfb_info *cinfo = info->par;
 
+	/* The following 3 hacks are for OpenDingux in QEMU */
+	/* 1. Allow max resolution 640x480 */
+	if (var->xres > 640)
+		var->xres = 640;
+	if (var->yres > 480)
+		var->yres = 480;
+
+	/* 2. Don't use double buffering, SDL will emulate it */
+	/* Note that double/triple buffering is causing key input
+	 * being stuck in SDL apps, explore it later.
+	 * For now using single buffer is the most suitable solution. */
+	var->xres_virtual = var->xres;
+	var->yres_virtual = var->yres;
+	var->vmode = FB_VMODE_NONINTERLACED;
+
+	/* 3. Allow only 16 or 32 bpp */
+	if (var->bits_per_pixel != 32 && var->bits_per_pixel != 16)
+		var->bits_per_pixel = 32;
+
 	switch (var->bits_per_pixel) {
 	case 1:
 		var->red.offset = 0;
